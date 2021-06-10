@@ -1,11 +1,14 @@
 import sys
 import select
 import time
-import tty
+
 
 try:
     import msvcrt
-except ImportError:
+
+except ImportError as e:
+    print("EEE", e)
+    import tty
     import termios
 import threading
 
@@ -23,6 +26,54 @@ def try_get_c():
     global xp
     xp = sys.stdin.read(1)
 
+
+def original_practice_2():
+    # https://code.activestate.com/recipes/572182-how-to-implement-kbhit-on-linux/
+    import sys, termios, atexit
+    from select import select
+
+    # save the terminal settings
+    fd = sys.stdin.fileno()
+    new_term = termios.tcgetattr(fd)
+    old_term = termios.tcgetattr(fd)
+
+    # new terminal setting unbuffered
+    new_term[3] = (new_term[3] & ~termios.ICANON & ~termios.ECHO)
+
+    # switch to normal terminal
+    def set_normal_term():
+        termios.tcsetattr(fd, termios.TCSAFLUSH, old_term)
+
+    # switch to unbuffered terminal
+    def set_curses_term():
+        termios.tcsetattr(fd, termios.TCSAFLUSH, new_term)
+
+    def putch(ch):
+        sys.stdout.write(ch)
+
+    def getch():
+        return sys.stdin.read(1)
+
+    def getche():
+        ch = getch()
+        putch(ch)
+        return ch
+
+    def kbhit():
+        dr,dw,de = select([sys.stdin], [], [], 0)
+        return len(dr) != 0
+
+    if __name__ == '__main__':
+        atexit.register(set_normal_term)
+        set_curses_term()
+
+        while 1:
+            if kbhit():
+                ch = getch()
+                break
+            sys.stdout.write('.')
+
+        print("done")
 
 def original_practice():
     # https://stackoverflow.com/questions/2408560/non-blocking-console-input#2409034
@@ -103,14 +154,14 @@ def original_practice():
 
 
 class NonBlockingIO:
-    def khbit(self) -> bool:
+    def kbhit(self) -> bool:
         raise NotImplementedError
 
     def getch(self) -> str:
         raise NotImplementedError
 
     def nonblock_read(self):
-        if self.khbit():
+        if self.kbhit():
             return self.getch()
         return None
 
@@ -123,13 +174,16 @@ class NonBlockingIO:
 
 class WindowsNonBlockingIO(NonBlockingIO):
     def __init__(self):
-        import khbit
+        import msvcrt
 
-    def khbit(self):
-        return msvcrt.khbit()
+    def kbhit(self):
+        return msvcrt.kbhit()
+
+    def input(self, hint):
+        return input(hint)
 
     def getch(self):
-        return msvcrt.getch()
+        return msvcrt.getch().decode('utf-8')
 
 
 class UnixNonBlockingIO(NonBlockingIO):
@@ -308,18 +362,18 @@ class UnixNonBlockingIO(NonBlockingIO):
                 return True
         return False
 
-    def khbit(self):
+    def kbhit(self):
 
         if self._peek_buf():
-            debug("[khbit] T1")
+            debug("[kbhit] T1")
             return True
         data_ready = self._data_ready()
         if data_ready:
-            debug("[khbit] T2")
+            debug("[kbhit] T2")
             return True
         x = self._try_read()
         if x:
-            debug("[khbit] T3")
+            debug("[kbhit] T3")
         return x
 
     def getch(self):

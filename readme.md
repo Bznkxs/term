@@ -40,6 +40,7 @@ In image viewer:
 - `f` shortcut for `x`+`-1`+`-1`; align both dimensions to terminal size
 - `p` change pooling method between "mean" and "nearest".
 - `m` change render mode between "rgb", "color256", "color8" and "grey".
+- `t`+`FILENAME[ENTER]` output ANSI sequence to file
 - `NUMBER` + `OPERATION`: repeat
   
     eg. 3d: move right 3 steps
