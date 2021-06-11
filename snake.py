@@ -2,11 +2,11 @@ import copy
 import time
 import typing
 
+import random
 import ansi
 from non_blocking_input import nbprepare, nbclose
 import atexit
 import sys, os
-import numpy as np
 
 nb = nbprepare()
 atexit.register(nbclose)
@@ -64,10 +64,21 @@ food_position = None
 def generate_food():
     global food_position
     h, w = get_size()
-    while True:
-        x, y = np.random.randint(0, h), np.random.randint(0, w)
-        if not (x, y) in dangerous_grids:
-            break
+    if len(dangerous_grids) < h * w * 4 // 5:
+        while True:
+            x, y = random.randint(0, h), random.randint(0, w)
+            if not (x, y) in dangerous_grids:
+                break
+    else:
+        safe_grids = []
+        for x in range(h):
+            for y in range(w):
+                if (x, y) not in dangerous_grids:
+                    safe_grids.append((x, y))
+        if len(safe_grids) == 0:
+            return None
+        k = random.randint(0, len(safe_grids))
+        x, y = k
     food_position = (x, y)
     return food_position
 
