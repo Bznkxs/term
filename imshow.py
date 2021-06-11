@@ -61,7 +61,7 @@ running_display = None
 
 
 def write(stt, file):
-    buf_len = 1 << 16
+    buf_len = 1 << 17
     for i in range(0, len(stt), buf_len):
         if stop and file == sys.stdout:
             print('\033[m', file=file)
@@ -103,7 +103,7 @@ def show(img: np.ndarray, t, l, fd=None):
         restore_screen_buf()
 
     h0, w0, _ = screen_buf.shape
-
+    #print(h,w, bw)
     if h0 >= h and w0 >= w:
         screen_buf = screen_buf[:h, :w]
     elif h0 >= h and w0 < w:
@@ -118,14 +118,17 @@ def show(img: np.ndarray, t, l, fd=None):
         screen_buf = _1
     wt = ' ' * (bw)
     rows = []
-    threshold = 0
+    threshold = 1200
     judge_buf = ((screen_buf - img) ** 2).sum(axis=2) > threshold  # those that need to change
     screen_buf[judge_buf] = img[judge_buf]
+    #plt.title(str(judge_buf.sum()))
+    #plt.show()
     for i in range(h):
         row = [f'{i + t:3d}']
         acc_same = 0
         acc_buf = 0
         buf_strategy = False
+        clean_strategy = False
         for j in range(w):
             if stop and fd == sys.stdout:
                 restore_screen_buf()
@@ -146,14 +149,17 @@ def show(img: np.ndarray, t, l, fd=None):
                     buf_strategy = False
                     acc_buf = 0
             if not buf_strategy:
-                row.append(getcolor(r, g, b).wrap(wt * (acc_same + 1), reset=False))
-                if j < w - 1 and (img[i, j] == img[i, j + 1]).all():
-                    acc_same += 1
+                if clean_strategy:
+                
+                    if j < w - 1 and (img[i, j] == img[i, j + 1]).all():
+                        acc_same += 1
+                    else:
+                        dd = getcolor(r, g, b).wrap(wt * (acc_same + 1), reset=False)  # \#getcolor(r,g,b)
+                    
+                        acc_same = 0
+                        row.append(dd)
                 else:
-                    dd = getcolor(r, g, b).wrap(wt * (acc_same + 1), reset=False)  # \#getcolor(r,g,b)
-                    # fprint(dd,r,g,b,wt,acc+1)
-                    acc_same = 0
-                    row.append(dd)
+                    row.append(getcolor(r, g, b).wrap(wt, reset=False))
         row.append(AnsiColor.reset)
         if w * bw + len(prespace) < mw:
             if acc_buf:
@@ -180,7 +186,6 @@ def show(img: np.ndarray, t, l, fd=None):
     old_b = bw
 
 def give_hint(hint=None):
-    return
     if hint:
         print(hint, end='\r')
 
@@ -217,14 +222,16 @@ def adjust(img, frame_t, frame_h, frame_l, frame_w, pooling_factor, pooling_type
             display(img2, frame_t, frame_l, fd, hint)
 
         global running_display, stop
-        if running_display:
-            stop = True
-            while running_display.is_alive():
-                continue
-        stop = False
-        running_display = threading.Thread(target=_local_)
-        running_display.daemon = True
-        running_display.start()
+        _local_()
+        # if running_display:
+        #     stop = True
+        #     while running_display.is_alive():
+        #         continue
+        # stop = False
+        # running_display = threading.Thread(target=_local_)
+        # running_display.daemon = True
+        # running_display.start()
+
     else:
         give_hint(hint)
     return h1, w1, frame_t, frame_l
@@ -253,11 +260,17 @@ def is_reader(im):
 
 def getshape(im):
     if is_reader(im):
-        return im.get_data(0).shape
+        return frame(im).shape
     return im.shape
 
 current_frame = 0
 current_frame_buffer = None
+
+def get_current_frame_buffer(im):
+    if current_frame_buffer is None:
+        nextframe(im)
+    return current_frame_buffer
+
 _new_img_mark = False
 
 def initframe():
@@ -274,10 +287,16 @@ def read_new_img_mark():
         return True
     return False
 
+getters = []
 def _inner_next_frame(im):  # one image for one generator
-    global current_frame_buffer, current_frame
+    global current_frame_buffer, current_frame, getters
+    myname = 'get' + str(len(getters))
+    getters.append(myname)
     while True:
         for i, x in enumerate(im):
+            # plt.imshow(x)
+            # plt.title(myname)
+            # plt.show()
             current_frame_buffer = x
             current_frame = i
             yield i
@@ -297,10 +316,9 @@ def nextframe(im):
 def frame(im, background=(255,255,255)):
     global current_frame_buffer
     if is_reader(im):
-        if current_frame_buffer is None:
-            nextframe(im)  # load frame
-        im = current_frame_buffer
-    _, __, channels = getshape(im)
+          # load frame
+        im = get_current_frame_buffer(im)
+    _, __, channels = im.shape
     # print("SSS", _, __, channels)
     if channels == 4:
         # blend with background
@@ -310,22 +328,22 @@ def frame(im, background=(255,255,255)):
             # b, a = a, b
             im[:, :, i] = (x - y) * a // 255 + y
         im = im[:, :, :3]
-    im[current_frame // 10, current_frame % 10] = 30
+    # im[current_frame // 10, current_frame % 10] = 30
     return im
 
-def num_frames(im):
-    if is_reader(im):
-        w = im.get_length()
-        if np.isinf(w):
-            return -1
-        return w
-    return 1
+# def num_frames(im):
+#     if is_reader(im):
+#         w = im.get_length()
+#         if np.isinf(w):
+#             return -1
+#         return w
+#     return 1
 
 if __name__ == '__main__':
 
     nbi = nbprepare()
     atexit.register(nbclose)
-    nbi.set_endkey('q')
+    nbi.set_endkeys('q')
     pooling_factor = 1
     try:
         if len(sys.argv) > 1:
@@ -343,6 +361,8 @@ if __name__ == '__main__':
     terminal_size = os.get_terminal_size()
     fixed_size = None
     old_fh, old_fw = frame_h, frame_w = int(terminal_size.lines - 5), int(terminal_size.columns // 2 - 5)
+    if frame_h > 100:
+        bw = 3
     frame_l = frame_t = 0
     pooling_type = 'nearest'
     h, w, _ = getshape(img)
@@ -357,11 +377,12 @@ if __name__ == '__main__':
     old_frame_p = 0
     frame_time_start = time.time()
     frame_time = frame_time_start
-    frame_time_limit = 1 / 24
+    frame_time_limits = [1 / 24, 2 / 24, 4 / 24, 8 / 24, 12 / 24, 1 / 1, 1 / 48]
+    ftl = 0
     frame_p = None
     special = ''
     modtime = None  # unknown
-    autoplay = True
+    autoplay = False
     try:
         while True:
             change = 0
@@ -379,7 +400,7 @@ if __name__ == '__main__':
             #         modtime = ofrp + 1
             #         calcfp %= modtime
             if autoplay:
-                if time.time() - frame_time > frame_time_limit:
+                if time.time() - frame_time > frame_time_limits[ftl]:
                     frame_p = nextframe(img)
                     frame_time = time.time()
                 if frame_p != old_frame_p:
@@ -428,7 +449,7 @@ if __name__ == '__main__':
                         h, w, _ = getshape(img)
                         old_frame_p = 0
                         frame_time_start = time.time()
-                        frame_time_limit = 1 / 24
+                        ftl = 0
                         frame_p = None
                         special = ''
                         modtime = None  # unknown
@@ -487,6 +508,9 @@ if __name__ == '__main__':
                     if not autoplay:
                         frame_p = nextframe(img)
                         change = 1
+                        special = f"n{frame_p}"
+                elif p == 'F':
+                    ftl = (ftl + 1) % len(frame_time_limits)
                 terminal_size = os.get_terminal_size()
                 if fixed_size is None:
                     frame_h, frame_w = int(terminal_size.lines - 5), int(terminal_size.columns // bw - 5)
@@ -515,9 +539,5 @@ if __name__ == '__main__':
                 op_number = 1
                 number_stat = 0
     except Exception as _:
-        while running_display:
-            stop = True
-            continue
-        print('\x1b[m')
-        traceback.print_exc(file='traceback')
+        pass
 

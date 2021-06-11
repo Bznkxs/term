@@ -168,7 +168,7 @@ class NonBlockingIO:
     def close(self):  # should call explicitly
         pass
 
-    def set_endkey(self, key):
+    def set_endkeys(self, keys):
         pass
 
 
@@ -183,7 +183,7 @@ class WindowsNonBlockingIO(NonBlockingIO):
         return input(hint)
 
     def getch(self):
-        return msvcrt.getch().decode('utf-8')
+        return msvcrt.getwch()
 
 
 class UnixNonBlockingIO(NonBlockingIO):
@@ -194,13 +194,13 @@ class UnixNonBlockingIO(NonBlockingIO):
         self._input_daemon = None  # the input daemon thread.
         self._str_buf = []  # string buffer
         self.timeout = 0.0001  # time for input timeout
-        self.endkey = None
+        self.endkeys = []
         self.enable_input = True
         self.disable_state = True
         self.closed = False
 
-    def set_endkey(self, key):
-        self.endkey = key
+    def set_endkeys(self, keys):
+        self.endkeys = keys
 
     def input(self, hint):
         print(hint, end=' ', flush=True)
@@ -289,7 +289,7 @@ class UnixNonBlockingIO(NonBlockingIO):
             return 2
         self._input_daemon = None
         if self._xp:
-            if self._xp == self.endkey and self.disable_state:
+            if self._xp == self.endkeys and self.disable_state:
                 self.enable_input = False
             debug(f"collected [ {self._xp} ]")
             self._str_buf.append(self._xp)
