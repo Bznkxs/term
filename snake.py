@@ -1,4 +1,5 @@
 import copy
+import json
 import time
 import typing
 
@@ -24,10 +25,24 @@ def get_size() -> typing.Tuple:
         change_size()
     return _size
 
+_debug = False
+_debug_buffer = []
+_MAX_DEBUG_BUFFER = 2
+def debug(*args, **kwargs):
+    global _debug_buffer
+    if _debug:
+        _debug_buffer.append((kwargs.get('split', ' ').join(str(i) for i in args), time.time()))
+        if len(_debug_buffer) > _MAX_DEBUG_BUFFER:
+            _debug_buffer.pop(0)
+        if kwargs.get('flush', False):
+            display()
+
+
 def get_display_size() -> typing.Tuple:
-    if _display_size is None:
-        change_size()
+    change_size()
     return _display_size
+
+minimal_h, minimal_w = 30, 70
 
 def change_size(h=None, w=None):
     global _size, _display_size
@@ -37,8 +52,25 @@ def change_size(h=None, w=None):
             h = int(terminal_size.lines)
         if w is None:
             w = int(terminal_size.columns)
+    # if h < minimal_h or w < minimal_w:
+    #     if h < minimal_h:
+    #         h = minimal_h
+    #     if w < minimal_w:
+    #         w = minimal_w
+    #     sys.stdout.write(f"\x1b[8;{h};{w}t")
+    #     sys.stdout.flush()
+
     _display_size = (h, w)
     _size = (25, 60)
+
+_old_size_buffer = None
+def display_size_changed():
+    global _old_size_buffer
+    display_size = get_display_size()
+    if _old_size_buffer != display_size:
+        _old_size_buffer = display_size
+        return True
+    return False
 
 def reset_dangerous_grids():
     dangerous_grids.clear()
@@ -66,7 +98,7 @@ def generate_food():
     h, w = get_size()
     if len(dangerous_grids) < h * w * 4 // 5:
         while True:
-            x, y = random.randint(0, h), random.randint(0, w)
+            x, y = random.randint(0, h - 1), random.randint(0, w - 1)
             if not (x, y) in dangerous_grids:
                 break
     else:
@@ -80,6 +112,7 @@ def generate_food():
         k = random.randint(0, len(safe_grids))
         x, y = k
     food_position = (x, y)
+    debug(f'FOOD POSITION ({x}, {y})')
     return food_position
 
 head_direction = (0, 1)
@@ -171,21 +204,39 @@ UNSTARTED, PREPARING, PLAYING, PAUSED, KILLED, END, QUIT = 0, 6, 1, 2, 3, 4, 5
 game_status = UNSTARTED
 
 _old_display_dict = {}
-def show_message(display, message, position='mid'):
+def show_message(display, message, position='mid', align=None):
     h, w = get_display_size()
-    positions = position.split('-')
+    # positions = position.split('-')
     lines = message.split('\n')
     hh = len(lines)
-    if position == 'mid':
+    if isinstance(position, str):
+        if position == 'mid':
+            if align is None:
+                align = 'mid'
+            h0 = (h-hh) // 2
+            w0 = w // 2
+        elif position == 'top-right':
+            if align is None:
+                align = 'right'
+            h0 = 0
+            w0 = w
+        elif position == 'bottom-left':
+            if align is None:
+                align = 'left'
+            h0 = h - hh
+            w0 = 0
+        else:
+            raise NotImplementedError("Unsupported message position!")
         for i, line in enumerate(lines):
             ll = len(line)
             for j, x in enumerate(line):
-                display[((h-hh)//2+i, (w-ll)//2+j)] = x
-    elif position == 'top-right':
-        for i, line in enumerate(lines):
-            ll = len(line)
-            for j, x in enumerate(line):
-                display[(i, w-ll+j)] = x
+                if align == 'mid':
+                    w1 = (w - ll) // 2
+                elif align == 'right':
+                    w1 = w0 - ll
+                else:
+                    w1 = w0
+                display[(h0 + i, w1 + j)] = x
 
 def show_grid(display, grids=None, position='mid'):
     h, w = get_size()
@@ -194,29 +245,32 @@ def show_grid(display, grids=None, position='mid'):
     for (x, y), v in grids.items():
         display[(x + dh, y + dw)] = v
 
+def cls_str():
+    return '\033[2J'
 def clear_screen(display):
-    display[(-1, -1)] = ('\033[2J', )
+    display[(-1, -1)] = (cls_str(), )
+
+def has_cls(display):
+    return display.get((-1, -1), None) == (cls_str(), )
 
 def draw_frame(display):
     h, w = get_size()
     h0, w0 = get_display_size()
     dh, dw = (h0 - h) // 2, (w0 - w) // 2
     for i in range(dh, dh + h):
-        display[(i, dw - 1)] = display[(i, dw + w)] = ('|', )
+        display[(i, dw - 1)] = display[(i, dw + w)] = '|'
     for i in range(dw, dw + w):
-        display[(dh - 1, i)] = display[(dh + h, i)] = ('-', )
-    display[(dh - 1, dw - 1)] = display[(dh + h, dw - 1)] = display[(dh - 1, dw + w)] = display[(dh + h, dw + w)] = ('+', )
-
-
+        display[(dh - 1, i)] = display[(dh + h, i)] = '-'
+    display[(dh - 1, dw - 1)] = display[(dh + h, dw - 1)] = display[(dh - 1, dw + w)] = display[(dh + h, dw + w)] = '+'
 
 def get_new_display(game_status):
     new_display = {}
+    if display_size_changed():
+        clear_screen(new_display)
     if game_status == UNSTARTED:
-        clear_screen(new_display)
-        welcome_message = 'WELCOME TO SNAKE!\n\nPRESS s TO START GAME.\n\n w - UP   \n a - LEFT \n s - DOWN \n d - RIGHT\n\nPRESS q TO QUIT.'
+        welcome_message = 'WELCOME TO GLUTTONOUS SNAKE!\n\nPRESS s TO START GAME.\n\n w - UP   \n a - LEFT \n s - ' \
+                          'DOWN \n d - RIGHT\n\nPRESS q TO QUIT. '
         show_message(new_display, welcome_message)
-    elif game_status == PREPARING:
-        clear_screen(new_display)
     elif game_status == PLAYING:
         show_message(new_display, f'SCORE  {score:5d}\nHIGH  {get_highscore():5d}', 'top-right')
         show_grid(new_display, {i: '#' for i in dangerous_grids})
@@ -225,12 +279,13 @@ def get_new_display(game_status):
         if food_position is not None:
             show_grid(new_display, {food_position: '$'})
     elif game_status == PAUSED:
-        clear_screen(new_display)
-        show_message(new_display, 'PAUSED.\nPRESS p TO RESUME.\nPRESS q TO QUIT.')
+        show_message(new_display, '\n\n\nGLUTTONOUS SNAKE\n\nPAUSED\n\nPRESS p TO RESUME.\nPRESS q TO QUIT.\n\n\n\n'
+                                  ' w - UP   \n a - LEFT \n s - '
+                                  'DOWN \n d - RIGHT')
     elif game_status == KILLED:
         show_message(new_display, f'SCORE  {score:5d}\nHIGH  {get_highscore():5d}', 'top-right')
         show_grid(new_display, {i: '#' for i in dangerous_grids})
-        show_grid(new_display, {l_snake[-1]: ansi.AnsiColor(color8='red').wrap(' ')})
+        show_grid(new_display, {l_snake[-1]: ansi.AnsiColor(color8='red').wrap(b'\xf0\x9f\x98\x85'.decode('utf-8'))})
         if food_position is not None:
             show_grid(new_display, {food_position: '$'})
     elif game_status == END:
@@ -240,14 +295,26 @@ def get_new_display(game_status):
     draw_frame(new_display)
     return new_display
 
-def display():
+def show_debug(display):
+    global _debug, _debug_buffer
+    if _debug and _debug_buffer:
+        show_message(display, '\n'.join(i for i, _ in _debug_buffer), 'bottom-left')
+
+def display(cls=False):
     global _old_display_dict
     new_display = get_new_display(game_status)
+    if cls:
+        clear_screen(new_display)
+    show_debug(new_display)
+    h, w = get_display_size()
     different_grids = {}
+    if has_cls(new_display):
+        _old_display_dict.clear()
+        sys.stdout.write(cls_str())
     for k, v in new_display.items():
-        if isinstance(v, str) and (k not in _old_display_dict or _old_display_dict[k] != v):
+        if isinstance(v, str) and (k not in _old_display_dict or _old_display_dict[k] != v) and h > k[0] >= 0 and w > k[1] >= 0:
             different_grids[k] = v
-        elif isinstance(v, tuple):
+        elif isinstance(v, tuple) and (h > k[0] >= 0 and w > k[1] >= 0):
             different_grids[k] = v[0]
     for k, v in _old_display_dict.items():
         if k not in new_display:
@@ -257,6 +324,8 @@ def display():
     contents.sort()
     lx, ly = -100, -100
     continuous_parts = ''
+    display_buf = ''
+    # cls
     for i, (x, y, v) in enumerate(contents):
         flag = False
         if lx == x and ly == y - 1:
@@ -264,15 +333,20 @@ def display():
             continuous_parts += v
             flag = True
         else:
-            sys.stdout.write(continuous_parts)
-            sys.stdout.write(f'\033[{x+1};{y+1}H')
+            display_buf += (continuous_parts) + (f'\033[{x+1};{y+1}H')
             continuous_parts = v
         if i == len(contents) - 1:
-            sys.stdout.write(continuous_parts)
+            display_buf += (continuous_parts)
 
         lx, ly = x, y
     _old_display_dict = new_display
-    sys.stdout.flush()
+    if contents:
+        sys.stdout.write(display_buf)
+        # debug("Display len:", len(display_buf), "Contents:", len(contents))
+        # with open('e.json', 'a') as f:
+        #     json.dump(contents, f)
+        sys.stdout.flush()
+        # time.sleep(1)
 
 
 def change_game_status(new_status):
@@ -311,10 +385,13 @@ def game_step():
                 change_game_status(KILLED)
             display()
             update_time()
+        return
     if game_status == KILLED:
         if time.time() - _time >= _killed_time_limit:
             change_game_status(END)
             display()
+        return
+    display()
 
 
 
@@ -322,7 +399,6 @@ def loop_on(function, *args, end_condition=None, **kwargs):
     while True:
         rv = function(*args, **kwargs)
         if callable(end_condition) and end_condition(rv):
-            print("YES")
             return rv
 
 def quit_game():
@@ -397,10 +473,11 @@ def check(ch):
         return check_answer(ch)
     return None
 
+
 def get_input(check_function):
     if nb.kbhit():
         ch = nb.getch()
-        print('\033[HGOT ', ch)
+        debug('GOT ', ch, flush=True)
         return check_function(ch)
     return None
 
@@ -410,7 +487,11 @@ def main_loop_function():
     game_step()
 
 if __name__ == '__main__':
-    sys.stdout.write('\033[2J')
-    sys.stdout.flush()
-    display()
+    print('\033[?25l')
+    display(cls=True)
     loop_on(main_loop_function)
+
+def exitfunction():
+    nbclose()
+    print("\033[?25h")
+    exit(0)
